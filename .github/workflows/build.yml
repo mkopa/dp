@@ -1,0 +1,95 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    # Matrix configuration for different operating systems
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+    # 1. Download and checkout the repository
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        submodules: 'recursive'
+
+    # 2. Python setup for Meson and Ninja
+    - name: Set up Python for Meson and Ninja
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.x'
+        cache: 'pip'
+    
+    - name: Create requirements file for build tools
+      run: |
+        echo "meson==1.4.0" > requirements-dev.txt
+        echo "ninja==1.11.1.1" >> requirements-dev.txt
+    
+    - name: Install Meson and Ninja
+      run: pip install -r requirements-dev.txt
+
+    # 3. Dependencies installation
+
+    # --- LINUXA ---
+    - name: Cache apt packages
+      if: runner.os == 'Linux'
+      uses: actions/cache@v4
+      with:
+        path: |
+          /var/cache/apt/archives
+          /var/lib/apt/lists
+        key: ${{ runner.os }}-apt-${{ hashFiles('**/build.yml') }}
+        restore-keys: |
+          ${{ runner.os }}-apt-
+
+    - name: Install C++ toolchain on Linux
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential
+
+    # --- MACOS ---
+    - name: Cache Homebrew packages
+      if: runner.os == 'macOS'
+      uses: actions/cache@v4
+      with:
+        path: ~/Library/Caches/Homebrew
+        key: ${{ runner.os }}-brew-${{ hashFiles('**/build.yml') }}
+        restore-keys: |
+          ${{ runner.os }}-brew-
+
+    - name: Install dependencies on macOS
+      if: runner.os == 'macOS'
+      run: brew install meson ninja
+
+    # --- WINDOWS ---
+    - name: Set up MSVC environment
+      if: runner.os == 'Windows'
+      uses: microsoft/setup-msbuild@v2
+
+    # 4. Compilation with Meson and Ninja
+    - name: Configure Meson
+      shell: pwsh
+      run: meson setup builddir
+
+    - name: Compile with Meson
+      shell: pwsh
+      run: meson compile -C builddir
+
+    # 5. Unit tests
+    # - name: Run tests
+    #   shell: pwsh
+    #   run: meson test -C builddir --print-errorlogs
