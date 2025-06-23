@@ -11,7 +11,7 @@
 namespace fs = std::filesystem;
 
 // Definition of the separator constant
-const std::string END_OF_RECORD = "\n---END_OF_FILE---\n";
+const std::string END_OF_RECORD = "\n--- END_OF_FILE ---\n";
 
 /**
  * @brief Checks if a file is binary by searching for a NUL byte.
@@ -51,7 +51,7 @@ void serialize_directory(const fs::path& input_dir, const fs::path& output_file)
             std::cout << "Processing: " << relative_path.generic_string() << std::endl;
 
             if (is_binary(path)) {
-                out << "BINARY " << relative_path.generic_string() << " " << file_size << "\n";
+                out << "--- START BINARY FILE " << relative_path.generic_string() << " " << file_size << " ---\n";
                 
                 std::ifstream file(path, std::ios::binary);
                 std::vector<uint8_t> binary_data(
@@ -62,7 +62,7 @@ void serialize_directory(const fs::path& input_dir, const fs::path& output_file)
                 std::string encoded = cppcodec::base64_rfc4648::encode(binary_data);
                 out << encoded;
             } else {
-                out << "TEXT " << relative_path.generic_string() << " " << file_size << "\n";
+                out << "--- START TEXT FILE " << relative_path.generic_string() << " " << file_size << " ---\n";
                 
                 std::ifstream file(path);
                 out << file.rdbuf();
