@@ -1,3 +1,321 @@
+--- START TEXT FILE path: "native.ini" size: 146 b blake3: 207e0a027c3b06104c00458c6afdebf3645b5a6f0326ae598acb2f3353c70f80 ---
+[host_machine]
+system = 'darwin'
+cpu_family = 'x86_64'
+cpu = 'x86_64'
+endian = 'little'
+
+[binaries]
+c = '/usr/bin/clang'
+cpp = '/usr/bin/clang++'
+
+--- END_OF_FILE ---
+--- START TEXT FILE path: "gitpack.sh" size: 1276 b blake3: d7287b22da186fbd67ae37f853c366983caeee6d9ec5bf3e0a988bc12bae5c04 ---
+#!/bin/bash
+
+# Usage check
+if [ "$#" -ne 1 ]; then
+    echo "Error: Invalid number of arguments." >&2
+    echo "Usage: $0 <path_to_git_directory>" >&2
+    exit 1
+fi
+
+source_dir="$1"
+
+# Validate path
+if [ ! -d "$source_dir" ]; then
+    echo "Error: Source directory '$source_dir' does not exist." >&2
+    exit 1
+fi
+
+if [ ! -d "$source_dir/.git" ]; then
+    echo "Error: Directory '$source_dir' does not appear to be a Git repository (no .git directory)." >&2
+    exit 1
+fi
+
+# Determine portable base64 command
+if base64 --version 2>/dev/null | grep -qi 'gnu'; then
+    base64_cmd() { base64 "$1"; }
+else
+    base64_cmd() { base64 -i "$1"; }  # BSD/macOS variant
+fi
+
+# Binary file detection (true if non-text)
+is_binary() {
+    local file_path="$1"
+    LC_ALL=C grep -qI . "$file_path"
+    return $((! $?))  # invert result: true = binary
+}
+
+# Main loop
+git -C "$source_dir" ls-files -c --others --exclude-standard | while IFS= read -r file; do
+    full_path="${source_dir}/${file}"
+
+    echo " -> Processing: $file" >&2
+    echo "--- START FILE: ${file} ---"
+
+    if is_binary "$full_path"; then
+        echo "[base64]"
+        base64_cmd "$full_path"
+    else
+        cat "$full_path"
+    fi
+
+    echo
+    echo "--- END FILE: ${file} ---"
+    echo
+done
+
+echo "Finished." >&2
+
+
+--- END_OF_FILE ---
+--- START TEXT FILE path: "README.md" size: 5686 b blake3: cbaaee12076ddeb3661ac82c170496a4d926725c2e4041d6f5bbb2e819e0c9db ---
+# dirpacker
+
+> **dirpacker** – Lightweight, text-based directory archiver for code sharing and AI prompting.
+
+`dirpacker` is a minimal, dependency-focused tool that serializes an entire directory into a single, human-readable text stream. It's ideal for:
+- Sharing project structure with AI assistants (e.g. LLMs)
+- Archiving codebases without binary formats
+- Debugging or auditing file inclusions/exclusions
+- Secure, transparent packaging (no compression, no hidden data)
+
+All files are wrapped in clear markers, and binary files are Base64-encoded. Rules from `.dpignore` (like `.gitignore`) control what's included.
+
+![Example output snippet](https://via.placeholder.com/600x200?text=---+START+TEXT+FILE+main.cpp+---\n#include+<iostream>\n...\n---+END_OF_FILE+---)
+*Example of serialized output*
+
+
+
+## ✨ Features
+
+- ✅ **Text-only output** – safe for AI, logs, diffs
+- ✅ **Binary file support** via Base64 encoding
+- ✅ **`.dpignore` support** – ignore files/dirs like `.gitignore`
+- ✅ **Filter by type**: `--text-only` skips binaries
+- ✅ **Limit by size**: `-l 100k` skips large files
+- ✅ **Dry-run & stats**: preview what would be packed
+- ✅ **No compression** – fully inspectable output
+- ✅ **Cross-platform**: Linux, macOS, Windows (MSVC/MinGW)
+
+
+
+## 🛠️ Build Instructions
+
+`dirpacker` uses **Meson + Ninja** – fast, modern, and portable.
+
+### Prerequisites
+
+- **C++17 compiler** (GCC 8+, Clang 7+, MSVC 19.14+)
+- **Meson** (v0.55+)
+- **Ninja** (bundled with Meson on most systems)
+- **Git** (to clone)
+
+Install Meson:
+```bash
+# Linux/macOS (pip)
+pip3 install meson ninja
+
+# Ubuntu/Debian
+sudo apt install meson ninja-build
+
+# Fedora
+sudo dnf install meson ninja-build
+
+# macOS (Homebrew)
+brew install meson ninja
+
+# Windows (MSYS2)
+pacman -S meson mingw-w64-x86_64-ninja
+```
+
+
+
+### 🐧 Linux & 🍏 macOS
+
+```bash
+# Clone the repo
+git clone https://github.com/mkopa/dp.git
+cd dp
+
+# Configure build
+meson setup build
+
+# Compile
+meson compile -C build
+
+# Run
+./build/dirpacker --help
+```
+
+
+
+### 💻 Windows
+
+#### Option 1: MSYS2 / MinGW-w64 (Recommended)
+
+```bash
+# Install MSYS2 from https://www.msys2.org/
+# Open "MSYS2 MinGW 64-bit"
+
+# Update and install
+pacman -Syu
+pacman -S git mingw-w64-x86_64-gcc mingw-w64-x86_64-meson mingw-w64-x86_64-ninja
+
+# Clone and build
+git clone https://github.com/mkopa/dp.git
+cd dp
+meson setup build
+meson compile -C build
+
+# Run
+./build/dirpacker.exe --help
+```
+
+#### Option 2: Visual Studio (MSVC)
+
+Ensure you have **Visual Studio 2019+** with C++ tools.
+
+```bash
+# Open x64 Native Tools Command Prompt
+git clone https://github.com/mkopa/dp.git
+cd dp
+
+# Meson will auto-detect MSVC
+meson setup build
+meson compile -C build
+
+dirpacker.exe --help
+```
+
+
+
+## 🧰 Usage
+
+```bash
+dirpacker -d <DIRECTORY> [OPTIONS]
+```
+
+### Required
+- `-d, --dir DIR` – input directory to pack
+
+### Optional
+- `-o, --out FILE` – output file (default: stdout)
+- `-t, --text-only` – skip binary files
+- `-l, --limit SIZE` – skip files larger than SIZE (e.g. `100k`, `1m`, `512b`)
+- `--dry-run` – simulate without writing
+- `--stats` – show summary after completion
+- `-v, --version` – show version
+- `-h, --help` – show help
+
+
+
+### Examples
+
+```bash
+# Pack current dir to stdout
+dirpacker -d .
+
+# Save to file
+dirpacker -d . -o project.pack
+
+# Pipe to another tool
+dirpacker -d src -l 100k | wc -c
+
+# Dry run with stats
+dirpacker -d . --dry-run --stats
+
+# Only text files, max 50KB
+dirpacker -d . -t -l 50k -o code_text.pack
+```
+
+
+
+## 📁 `.dpignore`
+
+Place a `.dpignore` file in your input directory to exclude files. Syntax is `.gitignore`-like:
+
+```gitignore
+# Comments
+*.log
+*.tmp
+build/
+dist/
+node_modules/
+*.exe
+*.dll
+
+# Exceptions
+!important.txt
+!docs/README.md
+```
+
+Rules are matched recursively. Paths are normalized to forward slashes (`/`).
+
+> 💡 Tip: Use `--dry-run --stats` to verify what will be included.
+
+
+
+## 📦 Output Format
+
+Each file is wrapped like this:
+
+```
+--- START TEXT FILE path/to/file.txt 1234 ---
+(file content here)
+--- END_OF_FILE ---
+```
+
+or for binaries:
+
+```
+--- START BINARY FILE image.png 5678 ---
+(base64-encoded data)
+--- END_OF_FILE ---
+```
+
+This makes parsing and debugging trivial.
+
+
+
+## 📄 License
+
+MIT License – see [LICENSE](LICENSE) for details.
+
+> Copyright © 2025 Marcin
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files, to deal in the software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the software, and to permit persons to whom the software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+
+## 🙌 Contributing
+
+PRs welcome! Please ensure:
+- Code compiles on all platforms
+- No new dependencies
+- Follows existing style
+- Updates README if needed
+
+
+
+## 🐞 Bug Reports
+
+Open an issue with:
+- OS and compiler
+- `meson --version`
+- Exact command
+- Expected vs actual output
+
+
+
+> 🏷️ `dirpacker` – because sometimes you just need to send the code, not the noise.
+--- END_OF_FILE ---
+--- START TEXT FILE path: "src/main.cpp" size: 22761 b blake3: 5ce142d709f942f7b3d04153c10b39aa17ad0ff8ff273630fdd05c2a10825f32 ---
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -616,3 +934,147 @@ int main(int argc, char **argv)
     }
     return 0;
 }
+--- END_OF_FILE ---
+--- START TEXT FILE path: "meson.build" size: 2955 b blake3: 0066d8997d777160c1adb619249ca71c9a562d11d4d7a62d7891ec767a202c36 ---
+# meson.build - WERSJA PRZENOŚNA (Linux + Windows)
+
+project('dirpacker', 'c', 'cpp',
+  version: '1.0.0',
+  default_options: ['cpp_std=c++17'])
+
+# --- Zależności ---
+
+
+cppcodec_dep = dependency('cppcodec', fallback: ['cppcodec', 'cppcodec_dep'])
+hash_library_dep = dependency('hash_library', fallback: ['hash_library', 'hash_library_dep'])
+
+
+
+
+# --- Biblioteka BLAKE3 ---
+blake3_src_dir = 'src/blake3'
+c_compiler = meson.get_compiler('c')
+
+# 1. Zbuduj małe biblioteki SIMD w C z odpowiednimi flagami
+blake3_simd_libs = []
+simd_files_c = {
+  'sse2': '-msse2',
+  'sse41': '-msse4.1',
+  'avx2': '-mavx2',
+  'avx512': '-mavx512f -mavx512vl -mavx512bw -mavx512dq'
+}
+
+foreach name, flag : simd_files_c
+  # Meson automatycznie tłumaczy flagi GCC na flagi MSVC (np. -mavx2 na /arch:AVX2)
+  if c_compiler.has_argument(flag)
+    lib = static_library(
+      'blake3-' + name,
+      blake3_src_dir + '/blake3_' + name + '.c',
+      c_args: flag.split()
+    )
+    blake3_simd_libs += lib
+  endif
+endforeach
+
+# 2. Wybierz odpowiednie pliki asemblera w zależności od systemu i kompilatora
+blake3_asm_sources = []
+host_system = host_machine.system()
+
+if host_system == 'windows'
+  if c_compiler.get_id() == 'msvc'
+    # Używamy plików .asm dla kompilatora Microsoftu
+    blake3_asm_sources = [
+      blake3_src_dir + '/blake3_sse2_x86-64_windows_msvc.asm',
+      blake3_src_dir + '/blake3_sse41_x86-64_windows_msvc.asm',
+      blake3_src_dir + '/blake3_avx2_x86-64_windows_msvc.asm',
+      blake3_src_dir + '/blake3_avx512_x86-64_windows_msvc.asm'
+    ]
+  else
+    # Używamy plików .S dla MinGW/GCC na Windows
+    blake3_asm_sources = [
+      blake3_src_dir + '/blake3_sse2_x86-64_windows_gnu.S',
+      blake3_src_dir + '/blake3_sse41_x86-64_windows_gnu.S',
+      blake3_src_dir + '/blake3_avx2_x86-64_windows_gnu.S',
+      blake3_src_dir + '/blake3_avx512_x86-64_windows_gnu.S'
+    ]
+  endif
+elif host_system == 'linux' or host_system == 'darwin'
+  # Używamy plików .S dla systemów uniksowych
+  blake3_asm_sources = [
+    blake3_src_dir + '/blake3_sse2_x86-64_unix.S',
+    blake3_src_dir + '/blake3_sse41_x86-64_unix.S',
+    blake3_src_dir + '/blake3_avx2_x86-64_unix.S',
+    blake3_src_dir + '/blake3_avx512_x86-64_unix.S'
+  ]
+endif
+
+# Lista "zwykłych" plików C, wspólnych dla wszystkich systemów
+blake3_normal_sources = [
+  blake3_src_dir + '/blake3.c',
+  blake3_src_dir + '/blake3_dispatch.c',
+  blake3_src_dir + '/blake3_portable.c',
+]
+
+# 3. Zbuduj główną bibliotekę BLAKE3
+blake3_lib = static_library(
+  'blake3',
+  blake3_normal_sources + blake3_asm_sources, # Łączymy źródła C i ASM
+  link_with: blake3_simd_libs
+)
+
+# Deklarujemy finalną zależność
+blake3_dep = declare_dependency(
+  link_with: blake3_lib,
+  include_directories: include_directories(blake3_src_dir)
+)
+
+
+# --- Cel główny (plik wykonywalny) ---
+
+executable('dirpacker',
+  'src/main.cpp',
+  dependencies: [cppcodec_dep, blake3_dep, hash_library_dep],
+  install: true
+)
+--- END_OF_FILE ---
+--- START TEXT FILE path: ".dpignore" size: 175 b blake3: 598753ba2cbdce48e7af7098c4e46f2b40623592d7164e23b37a55fbe82e264f ---
+build/
+.git/
+.github/
+subprojects/
+.vscode/
+# src/blake3/blake3_c_rust_bindings/
+# src/blake3/cmake/
+# src/blake3/dependencies/
+# src/blake3/*.S
+# src/blake3/*.asm
+src/blake3/
+--- END_OF_FILE ---
+--- START TEXT FILE path: ".gitignore" size: 18 b blake3: 2f0b0f31d9790c55d2d601a97c8ddd91e5ed411e1839df4bebccb4a83610028d ---
+/.vscode
+/builddir
+--- END_OF_FILE ---
+--- START TEXT FILE path: "LICENSE" size: 1068 b blake3: d882c608ac09b0f5f6a4eb98adb7c08b3e7a3a71813d10f8e6309175e2e23fac ---
+MIT License
+
+Copyright (c) 2025 Marcin Kopa
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--- END_OF_FILE ---

@@ -1,4 +1,11 @@
 build/
 .git/
+.github/
 subprojects/
 .vscode/
+# src/blake3/blake3_c_rust_bindings/
+# src/blake3/cmake/
+# src/blake3/dependencies/
+# src/blake3/*.S
+# src/blake3/*.asm
+src/blake3/
