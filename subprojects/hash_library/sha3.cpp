@@ -7,8 +7,16 @@
 #include "sha3.h"
 
 // big endian architectures need #define __BYTE_ORDER __BIG_ENDIAN
-#ifndef _MSC_VER
+//#ifndef _MSC_VER
+//#include <endian.h>
+//#endif
+
+#if defined(__linux__)
 #include <endian.h>
+#elif defined(__APPLE__)
+#include <libkern/OSByteOrder.h>
+#define be16toh(x) OSByteOrder_swap_16(x)
+#define be32toh(x) OSByteOrder_swap_32(x)
 #endif
 
 #include <iostream>
