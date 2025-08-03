@@ -1,2 +1,4 @@
-/.vscode
-/builddir
+.vscode/
+build/
+builddir/
+subprojects/imgui/.github/
