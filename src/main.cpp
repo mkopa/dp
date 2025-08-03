@@ -12,7 +12,7 @@
 #include <system_error> // Potrzebne do przechwytywania błędów systemowych
 
 // Zależności projektu
-#include "blake3/blake3.h"
+#include "blake3.h"
 #include <cppcodec/base64_rfc4648.hpp>
 
 // Zintegrowana biblioteka dla SHA
