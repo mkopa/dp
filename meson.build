@@ -136,6 +136,7 @@ install_data(
 
 executable('ai_prompter',
   'gui/main.cpp',
+  'gui/Themes.cpp', # <- DODANY NOWY PLIK ŹRÓDŁOWY
   imgui_backend_sources,
   font_copier,
   cpp_args: ai_prompter_args,
