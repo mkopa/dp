@@ -16,6 +16,7 @@ public:
 
 private:
     void initializeSchema();
+    void seedInitialData(); // <-- DODANO BRAKUJĄCĄ DEKLARACJĘ
 
     std::unique_ptr<SQLite::Database> m_db;
     fs::path m_db_path;

@@ -8,7 +8,8 @@ imgui_sources = files(
   'imgui_draw.cpp',
   'imgui_tables.cpp',
   'imgui_widgets.cpp',
-  'imgui_demo.cpp'
+  'imgui_demo.cpp',
+  'misc/cpp/imgui_stdlib.cpp',
 )
 
 # Budujemy bibliotekę statyczną z samego rdzenia
@@ -16,6 +17,6 @@ imgui_lib = static_library('imgui', imgui_sources)
 
 # Deklarujemy zależność, która udostępnia tylko rdzeń ImGui i jego nagłówki
 imgui_dep = declare_dependency(
-  include_directories: include_directories('.'),
+  include_directories: include_directories('.', 'misc/cpp'),
   link_with: imgui_lib
 )

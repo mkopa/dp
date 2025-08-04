@@ -10,31 +10,45 @@
 #include "imgui.h"
 #include "imgui_impl_sdl2.h"
 #include "imgui_impl_opengl3.h"
+#include "imgui_stdlib.h"
 
 #include "dirpacker/dirpacker.h"
 #include "Themes.h"
 #include "AppState.h"
 #include "ConfigManager.h"
 #include "DatabaseManager.h"
+#include "I18nManager.h"
 
 // --- Zmienne Globalne Stanu Aplikacji ---
 static AppState app_state;
 static std::unique_ptr<DatabaseManager> db_manager;
 static std::vector<std::string> available_theme_names;
-static char role_buffer[1024] = "Jesteś ekspertem programistą C++ z 20-letnim doświadczeniem w systemach o niskim opóźnieniu i wysokiej wydajności.";
-static char task_buffer[2048] = "Przeanalizuj poniższy kod. Zidentyfikuj potencjalne błędy, 'code smells', oraz zaproponuj refaktoryzację w celu poprawy czytelności i wydajności.";
-static char context_buffer[65536] = "";
-static char constraints_buffer[1024] = "- Nie używaj bibliotek zewnętrznych poza C++17 STL.\n- Zachowaj istniejącą funkcjonalność.\n- Odpowiadaj w języku polskim.";
-static char output_format_buffer[1024] = "Zaproponuj zmiany w formacie 'diff'. Każdą sugestię opatrz zwięzłym uzasadnieniem.";
-static char playground_output_buffer[65536] = "Tutaj wklej odpowiedź z modelu AI, aby ją przeanalizować i porównać...";
+
+static std::string current_role;
+static std::string current_task;
+static std::string current_constraints;
+static std::string current_output_format;
+
+static std::string current_prompt_lang_code = "pl_PL";
+static std::string current_prompt_template_key = "refactor_prompt_name";
+
+static std::string context_buffer;
+static std::string playground_output_buffer;
 static std::string final_prompt;
 
 // --- Funkcje Pomocnicze ---
 int EstimateTokens(const char *text) { return text ? static_cast<int>(strlen(text) / 4) : 0; }
 void ThrowSDLError(const std::string &message) { throw std::runtime_error(message + " SDL_Error: " + SDL_GetError()); }
 
-static void VSplitter(const char* str_id, float* width)
-{
+void LoadPromptTemplate(const std::string& name_key, const std::string& lang_code) {
+    PromptContent content = I18nManager::GetInstance().GetPromptContent(name_key, lang_code);
+    current_role = content.role;
+    current_task = content.task;
+    current_constraints = content.constraints;
+    current_output_format = content.output_format;
+}
+
+static void VSplitter(const char* str_id, float* width) {
     ImGui::SameLine();
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.5f, 0.5f, 0.5f, 0.3f));
@@ -46,77 +60,90 @@ static void VSplitter(const char* str_id, float* width)
     ImGui::SameLine();
 }
 
-// --- Funkcje Renderujące Poszczególne Panele ---
+// --- Funkcje Renderujące ---
 
 void RenderLibraryPane(float width) {
     ImGui::BeginChild("LibraryPane", ImVec2(width, 0), ImGuiChildFlags_Border);
-    ImGui::Text("Biblioteka Zasobów");
+    ImGui::Text("%s", L("library_pane_title"));
     ImGui::Separator();
-    if (ImGui::TreeNodeEx("Szablony Promptów", ImGuiTreeNodeFlags_DefaultOpen)) {
-        ImGui::Selectable("Refaktoryzacja C++");
-        ImGui::Selectable("Generowanie Dokumentacji");
-        ImGui::Selectable("Analiza Błędów Logiki");
-        ImGui::TreePop();
-    }
-    if (ImGui::TreeNodeEx("Wycinki (Snippets)", ImGuiTreeNodeFlags_DefaultOpen)) {
-        ImGui::Selectable("[Rola] Senior C++ Dev");
-        ImGui::Selectable("[Ograniczenie] Tylko STL");
-        ImGui::Selectable("[Format] Markdown z diff");
+    if (ImGui::TreeNodeEx(L("prompt_templates_header"), ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (ImGui::Selectable(L("refactor_prompt_name"), current_prompt_template_key == "refactor_prompt_name")) {
+            current_prompt_template_key = "refactor_prompt_name";
+            LoadPromptTemplate(current_prompt_template_key, current_prompt_lang_code);
+        }
         ImGui::TreePop();
     }
     ImGui::EndChild();
 }
 
 void RenderComposerPane() {
+    ImGui::BeginChild("ComposerPaneContent", ImVec2(0, -ImGui::GetFrameHeightWithSpacing() * 2.2f), false);
     if (ImGui::BeginTabBar("ComposerTabs")) {
-        if (ImGui::BeginTabItem("Prompt: Refaktoryzacja Silnika Fizyki v1")) {
-            ImGui::BeginChild("ComposerLeft", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 0), ImGuiChildFlags_None);
-                if (ImGui::CollapsingHeader("Rola / Persona", ImGuiTreeNodeFlags_DefaultOpen))
-                    ImGui::InputTextMultiline("##Role", role_buffer, sizeof(role_buffer), ImVec2(-1, ImGui::GetTextLineHeight() * 4));
-                if (ImGui::CollapsingHeader("Zadanie", ImGuiTreeNodeFlags_DefaultOpen))
-                    ImGui::InputTextMultiline("##Task", task_buffer, sizeof(task_buffer), ImVec2(-1, ImGui::GetTextLineHeight() * 7));
-                if (ImGui::CollapsingHeader("Ograniczenia", ImGuiTreeNodeFlags_DefaultOpen))
-                    ImGui::InputTextMultiline("##Constraints", constraints_buffer, sizeof(constraints_buffer), ImVec2(-1, ImGui::GetTextLineHeight() * 4));
-                if (ImGui::CollapsingHeader("Format Wyjściowy", ImGuiTreeNodeFlags_DefaultOpen))
-                    ImGui::InputTextMultiline("##OutputFormat", output_format_buffer, sizeof(output_format_buffer), ImVec2(-1, ImGui::GetTextLineHeight() * 4));
+        if (ImGui::BeginTabItem(L(current_prompt_template_key.c_str()))) {
+            ImGui::BeginChild("ComposerLeft", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f - 4.0f, 0), ImGuiChildFlags_None);
+                if (ImGui::CollapsingHeader(L("role_header"), ImGuiTreeNodeFlags_DefaultOpen))
+                    ImGui::InputTextMultiline("##Role",&current_role, ImVec2(-1, ImGui::GetTextLineHeight() * 4));
+                if (ImGui::CollapsingHeader(L("task_header"), ImGuiTreeNodeFlags_DefaultOpen))
+                    ImGui::InputTextMultiline("##Task",&current_task, ImVec2(-1, ImGui::GetTextLineHeight() * 7));
+                if (ImGui::CollapsingHeader(L("constraints_header"), ImGuiTreeNodeFlags_DefaultOpen))
+                    ImGui::InputTextMultiline("##Constraints",&current_constraints, ImVec2(-1, ImGui::GetTextLineHeight() * 4));
+                if (ImGui::CollapsingHeader(L("output_format_header"), ImGuiTreeNodeFlags_DefaultOpen))
+                    ImGui::InputTextMultiline("##OutputFormat",&current_output_format, ImVec2(-1, ImGui::GetTextLineHeight() * 4));
             ImGui::EndChild();
             ImGui::SameLine();
 
             ImGui::BeginChild("ComposerRight", ImVec2(0, 0), ImGuiChildFlags_None);
-                if (ImGui::Button("Wczytaj kod z katalogu", ImVec2(-1, 0))) { /* Logika Dirpacker */ }
-                ImGui::InputTextMultiline("##Context", context_buffer, sizeof(context_buffer), ImVec2(-1, -1));
+                if (ImGui::Button(L("load_code_button"), ImVec2(-1, 0))) { /* Logika Dirpacker */ }
+                ImGui::InputTextMultiline("##Context", &context_buffer, ImVec2(-1, -1));
             ImGui::EndChild();
-            
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("+")) { /* Logika dodawania nowej zakładki */ }
         ImGui::EndTabBar();
+    }
+    ImGui::EndChild();
+
+    ImGui::Separator();
+    ImGui::TextUnformatted(L("prompt_language_label"));
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(200);
+    const auto& prompt_langs = I18nManager::GetInstance().GetAvailablePromptLanguages();
+    if (prompt_langs.count(current_prompt_lang_code)) {
+        if (ImGui::BeginCombo("##PromptLang", prompt_langs.at(current_prompt_lang_code).c_str())) {
+            for (const auto& [code, name] : prompt_langs) {
+                const bool is_selected = (current_prompt_lang_code == code);
+                if (ImGui::Selectable(name.c_str(), is_selected)) {
+                    current_prompt_lang_code = code;
+                    LoadPromptTemplate(current_prompt_template_key, current_prompt_lang_code);
+                }
+                if (is_selected) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
     }
 }
 
 void RenderPlaygroundPane(float width) {
     ImGui::BeginChild("PlaygroundPane", ImVec2(width, 0), ImGuiChildFlags_Border);
-    ImGui::Text("Plac Zabaw AI");
+    ImGui::Text("%s", L("playground_pane_title"));
     ImGui::Separator();
     
     std::stringstream ss;
-    ss << role_buffer << "\n\n" << task_buffer << "\n\n" << constraints_buffer << "\n\n" << output_format_buffer << "\n\n---\nKOD:\n" << context_buffer;
+    ss << current_role << "\n\n" << current_task << "\n\n" << current_constraints << "\n\n" << current_output_format << "\n\n---\nKOD:\n" << context_buffer;
     final_prompt = ss.str();
 
-    if (ImGui::Button("Kopiuj gotowy prompt", ImVec2(-1, 0))) {
+    if (ImGui::Button(L("copy_prompt_button"), ImVec2(-1, 0))) {
         ImGui::SetClipboardText(final_prompt.c_str());
     }
 
     if (ImGui::BeginTabBar("OutputTabs")) {
-        if (ImGui::BeginTabItem("Odpowiedź Modelu")) {
-            ImGui::InputTextMultiline("##PlaygroundOutput", playground_output_buffer, sizeof(playground_output_buffer), ImVec2(-1, -1));
+        if (ImGui::BeginTabItem(L("model_response_tab"))) {
+            ImGui::InputTextMultiline("##PlaygroundOutput", &playground_output_buffer, ImVec2(-1, -1));
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("Finalny prompt (podgląd)")) {
+        if (ImGui::BeginTabItem(L("final_prompt_tab"))) {
              ImGui::BeginChild("FinalPromptScroll", ImVec2(0,0), ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
-             ImGui::TextWrapped("%s", final_prompt.c_str());
+             ImGui::TextUnformatted(final_prompt.c_str());
              ImGui::EndChild();
-             ImGui::EndTabItem();
         }
         ImGui::EndTabBar();
     }
@@ -127,12 +154,15 @@ void RenderStatusBar() {
     ImGui::Separator();
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 5));
     
-    float theme_text_width = ImGui::CalcTextSize(app_state.theme_name.c_str()).x + ImGui::CalcTextSize("Motyw: ").x;
+    char theme_buffer[256];
+    snprintf(theme_buffer, sizeof(theme_buffer), L("status_bar_theme"), app_state.theme_name.c_str());
+    float theme_text_width = ImGui::CalcTextSize(theme_buffer).x;
+
     int token_count = EstimateTokens(final_prompt.c_str());
-    ImGui::Text("Szacowana liczba tokenów: %d", token_count);
+    ImGui::Text(L("status_bar_tokens"), token_count);
     
     ImGui::SameLine(ImGui::GetWindowWidth() - theme_text_width - ImGui::GetStyle().ItemSpacing.x);
-    ImGui::Text("Motyw: %s", app_state.theme_name.c_str());
+    ImGui::TextUnformatted(theme_buffer);
     
     ImGui::PopStyleVar();
 }
@@ -146,11 +176,20 @@ void RenderUI() {
     ImGui::Begin("Główny Kontener", nullptr, window_flags);
 
     if (ImGui::BeginMenuBar()) {
-        if (ImGui::BeginMenu("Motywy")) {
+        if (ImGui::BeginMenu(L("themes_menu"))) {
             for (const auto& theme_name : available_theme_names) {
                 if (ImGui::MenuItem(theme_name.c_str(), NULL, app_state.theme_name == theme_name)) {
                     ThemeManager::ApplyTheme(theme_name, db_manager->getDB());
                     app_state.theme_name = theme_name;
+                }
+            }
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu(L("ui_language_menu"))) {
+            const auto& ui_langs = I18nManager::GetInstance().GetAvailableUILanguages();
+            for (const auto& [code, name] : ui_langs) {
+                if (ImGui::MenuItem(name.c_str(), NULL, I18nManager::GetInstance().GetCurrentUILanguage() == code)) {
+                    I18nManager::GetInstance().SetUILanguage(code);
                 }
             }
             ImGui::EndMenu();
@@ -201,8 +240,18 @@ int main(int, char **) {
     try {
         fs::path config_dir = ConfigManager::GetConfigDirPath();
         db_manager = std::make_unique<DatabaseManager>(config_dir / "ai_prompter.sqlite");
+        
+        I18nManager::GetInstance().Initialize(db_manager->getDB());
         ThemeManager::InitializeAndSeedThemes(db_manager->getDB());
+        
         available_theme_names = ThemeManager::GetThemeNames(db_manager->getDB());
+
+        // TODO: Wczytaj zapisane języki z pliku .conf lub z bazy danych
+        I18nManager::GetInstance().SetUILanguage("pl_PL"); 
+        current_prompt_lang_code = "pl_PL";
+        
+        LoadPromptTemplate(current_prompt_template_key, current_prompt_lang_code);
+
     } catch (const std::exception& e) {
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Błąd Krytyczny Bazy Danych", e.what(), NULL);
         return 1;

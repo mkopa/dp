@@ -142,14 +142,16 @@ gui_headers = files(
   'gui/Themes.h',
   'gui/ConfigManager.h',
   'gui/AppState.h',
-  'gui/DatabaseManager.h', # <-- NOWY NAGŁÓWEK
+  'gui/DatabaseManager.h',
+  'gui/I18nManager.h'
 )
 
 executable('ai_prompter',
   'gui/main.cpp',
   'gui/Themes.cpp',
   'gui/ConfigManager.cpp',
-  'gui/DatabaseManager.cpp', # <-- NOWA DEFINICJA
+  'gui/DatabaseManager.cpp',
+  'gui/I18nManager.cpp',
   imgui_backend_sources,
   font_copier,
   cpp_args: ai_prompter_args,

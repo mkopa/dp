@@ -3819,7 +3819,7 @@ Stats pack(const PackerConfig& config);
 
 } // namespace dp
 --- END_OF_FILE ---
---- START TEXT FILE path: "meson.build" size: 5357 b blake3: 8b7da755f2742166a6e298cd70da4745689a2cd7a7c7475cde6ffb61dfb4503a ---
+--- START TEXT FILE path: "meson.build" size: 5361 b blake3: 82596e11b5e6c1ace5df7a71b30a4a50b67a5978b0caf67bfd9871f7f6caf616 ---
 # meson.build - WERSJA MODUŁOWA (Ostateczna, Gwarantowana)
 
 project('dirpacker', 'c', 'cpp',
@@ -3964,14 +3964,16 @@ gui_headers = files(
   'gui/Themes.h',
   'gui/ConfigManager.h',
   'gui/AppState.h',
-  'gui/DatabaseManager.h', # <-- NOWY NAGŁÓWEK
+  'gui/DatabaseManager.h',
+  'gui/I18nManager.h'
 )
 
 executable('ai_prompter',
   'gui/main.cpp',
   'gui/Themes.cpp',
   'gui/ConfigManager.cpp',
-  'gui/DatabaseManager.cpp', # <-- NOWA DEFINICJA
+  'gui/DatabaseManager.cpp',
+  'gui/I18nManager.cpp',
   imgui_backend_sources,
   font_copier,
   cpp_args: ai_prompter_args,
@@ -4254,7 +4256,7 @@ struct AppState {
     float playground_pane_width = 450.0f;
 };
 --- END_OF_FILE ---
---- START TEXT FILE path: "gui/DatabaseManager.cpp" size: 2545 b blake3: 4d0861f9bfa4d4a86844b30da47117583fdd2a18adad5eb1e29d386090fab049 ---
+--- START TEXT FILE path: "gui/DatabaseManager.cpp" size: 3288 b blake3: 2be03c2cfddb4c13b2608167541d3cb48c3ae89e0c58491a2fd300c9b9e803e0 ---
 #include "DatabaseManager.h"
 #include <iostream>
 #include <stdexcept>
@@ -4284,30 +4286,38 @@ SQLite::Database& DatabaseManager::getDB() {
 }
 
 void DatabaseManager::initializeSchema() {
-    bool themes_table_exists = m_db->tableExists("themes");
+    SQLite::Transaction transaction(*m_db);
 
-    if (!themes_table_exists) {
-        std::cout << "Inicjalizacja nowego schematu bazy danych..." << std::endl;
-        try {
-            SQLite::Transaction transaction(*m_db);
-            m_db->exec("CREATE TABLE schema_version (version INTEGER PRIMARY KEY)");
-            m_db->exec("INSERT INTO schema_version (version) VALUES (1)");
-            m_db->exec("CREATE TABLE configuration (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)");
-            m_db->exec("CREATE TABLE themes (theme_id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE)");
-            m_db->exec("CREATE TABLE theme_colors (theme_id INTEGER NOT NULL, imgui_col_id INTEGER NOT NULL, r REAL NOT NULL, g REAL NOT NULL, b REAL NOT NULL, a REAL NOT NULL, FOREIGN KEY(theme_id) REFERENCES themes(theme_id), PRIMARY KEY(theme_id, imgui_col_id))");
-            m_db->exec("CREATE TABLE theme_styles (theme_id INTEGER NOT NULL, imgui_style_var_id INTEGER NOT NULL, value_x REAL NOT NULL, value_y REAL NOT NULL, FOREIGN KEY(theme_id) REFERENCES themes(theme_id), PRIMARY KEY(theme_id, imgui_style_var_id))");
-            transaction.commit();
-            std::cout << "Schemat bazy danych został pomyślnie utworzony." << std::endl;
-        } catch (const std::exception& e) {
-            std::cerr << "Błąd podczas tworzenia schematu bazy danych: " << e.what() << std::endl;
-            throw;
-        }
-    } else {
-        std::cout << "Istniejący schemat bazy danych został znaleziony." << std::endl;
+    if (!m_db->tableExists("schema_version")) {
+        std::cout << "Inicjalizacja nowego schematu bazy danych (v1)..." << std::endl;
+        m_db->exec("CREATE TABLE schema_version (version INTEGER PRIMARY KEY)");
+        m_db->exec("INSERT INTO schema_version (version) VALUES (1)");
+        
+        m_db->exec("CREATE TABLE configuration (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)");
+        
+        m_db->exec("CREATE TABLE themes (theme_id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE)");
+        m_db->exec("CREATE TABLE theme_colors (theme_id INTEGER NOT NULL, imgui_col_id INTEGER NOT NULL, r REAL NOT NULL, g REAL NOT NULL, b REAL NOT NULL, a REAL NOT NULL, FOREIGN KEY(theme_id) REFERENCES themes(theme_id), PRIMARY KEY(theme_id, imgui_col_id))");
+        m_db->exec("CREATE TABLE theme_styles (theme_id INTEGER NOT NULL, imgui_style_var_id INTEGER NOT NULL, value_x REAL NOT NULL, value_y REAL NOT NULL, FOREIGN KEY(theme_id) REFERENCES themes(theme_id), PRIMARY KEY(theme_id, imgui_style_var_id))");
     }
+
+    // --- Mechanizm Migracji Schematu ---
+    int current_version = m_db->execAndGet("SELECT version FROM schema_version");
+    
+    if (current_version < 2) {
+        std::cout << "Aktualizacja schematu bazy danych do v2 (Lokalizacja)..." << std::endl;
+        m_db->exec("CREATE TABLE languages (lang_code TEXT PRIMARY KEY NOT NULL, name_native TEXT NOT NULL)");
+        m_db->exec("CREATE TABLE ui_translations (key TEXT NOT NULL, lang_code TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (key, lang_code), FOREIGN KEY(lang_code) REFERENCES languages(lang_code))");
+        m_db->exec("CREATE TABLE prompt_templates (template_id INTEGER PRIMARY KEY AUTOINCREMENT, name_key TEXT NOT NULL UNIQUE)");
+        m_db->exec("CREATE TABLE prompt_translations (template_id INTEGER NOT NULL, lang_code TEXT NOT NULL, role TEXT, task TEXT, constraints TEXT, output_format TEXT, PRIMARY KEY (template_id, lang_code), FOREIGN KEY(template_id) REFERENCES prompt_templates(template_id), FOREIGN KEY(lang_code) REFERENCES languages(lang_code))");
+        
+        m_db->exec("UPDATE schema_version SET version = 2");
+    }
+    
+    transaction.commit();
+    std::cout << "Schemat bazy danych jest aktualny." << std::endl;
 }
 --- END_OF_FILE ---
---- START TEXT FILE path: "gui/main.cpp" size: 12983 b blake3: 2e12bff43b05c99d07e6515bd714b6988ba7a81cf752bde2fe7aeca3e2c3878e ---
+--- START TEXT FILE path: "gui/main.cpp" size: 14976 b blake3: 067c3cc1f0238c5011a7ef3c598ab2aa5da2e8b558ca744182e3089b25951c93 ---
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -4320,28 +4330,46 @@ void DatabaseManager::initializeSchema() {
 #include "imgui.h"
 #include "imgui_impl_sdl2.h"
 #include "imgui_impl_opengl3.h"
+// Potrzebujemy "imgui_stdlib.h" do łatwej integracji ImGui::InputText z std::string
+#include "imgui_stdlib.h"
 
 #include "dirpacker/dirpacker.h"
 #include "Themes.h"
 #include "AppState.h"
 #include "ConfigManager.h"
 #include "DatabaseManager.h"
+#include "I18nManager.h"
 
 // --- Zmienne Globalne Stanu Aplikacji ---
 static AppState app_state;
 static std::unique_ptr<DatabaseManager> db_manager;
 static std::vector<std::string> available_theme_names;
-static char role_buffer[1024] = "Jesteś ekspertem programistą C++ z 20-letnim doświadczeniem w systemach o niskim opóźnieniu i wysokiej wydajności.";
-static char task_buffer[2048] = "Przeanalizuj poniższy kod. Zidentyfikuj potencjalne błędy, 'code smells', oraz zaproponuj refaktoryzację w celu poprawy czytelności i wydajności.";
-static char context_buffer[65536] = "";
-static char constraints_buffer[1024] = "- Nie używaj bibliotek zewnętrznych poza C++17 STL.\n- Zachowaj istniejącą funkcjonalność.\n- Odpowiadaj w języku polskim.";
-static char output_format_buffer[1024] = "Zaproponuj zmiany w formacie 'diff'. Każdą sugestię opatrz zwięzłym uzasadnieniem.";
-static char playground_output_buffer[65536] = "Tutaj wklej odpowiedź z modelu AI, aby ją przeanalizować i porównać...";
+
+// Zamiast statycznych buforów C-style, używamy std::string
+static std::string current_role;
+static std::string current_task;
+static std::string current_constraints;
+static std::string current_output_format;
+
+static std::string current_prompt_lang_code = "pl_PL"; // Domyślny język promptów
+static std::string current_prompt_template_key = "refactor_prompt_name"; // Domyślny szablon
+
+static std::string context_buffer;
+static std::string playground_output_buffer;
 static std::string final_prompt;
 
 // --- Funkcje Pomocnicze ---
 int EstimateTokens(const char *text) { return text ? static_cast<int>(strlen(text) / 4) : 0; }
 void ThrowSDLError(const std::string &message) { throw std::runtime_error(message + " SDL_Error: " + SDL_GetError()); }
+
+// --- Funkcja do ładowania treści szablonu ---
+void LoadPromptTemplate(const std::string& name_key, const std::string& lang_code) {
+    PromptContent content = I18nManager::GetInstance().GetPromptContent(name_key, lang_code);
+    current_role = content.role;
+    current_task = content.task;
+    current_constraints = content.constraints;
+    current_output_format = content.output_format;
+}
 
 static void VSplitter(const char* str_id, float* width)
 {
@@ -4360,71 +4388,89 @@ static void VSplitter(const char* str_id, float* width)
 
 void RenderLibraryPane(float width) {
     ImGui::BeginChild("LibraryPane", ImVec2(width, 0), ImGuiChildFlags_Border);
-    ImGui::Text("Biblioteka Zasobów");
+    ImGui::Text("%s", L("library_pane_title"));
     ImGui::Separator();
-    if (ImGui::TreeNodeEx("Szablony Promptów", ImGuiTreeNodeFlags_DefaultOpen)) {
-        ImGui::Selectable("Refaktoryzacja C++");
-        ImGui::Selectable("Generowanie Dokumentacji");
-        ImGui::Selectable("Analiza Błędów Logiki");
-        ImGui::TreePop();
-    }
-    if (ImGui::TreeNodeEx("Wycinki (Snippets)", ImGuiTreeNodeFlags_DefaultOpen)) {
-        ImGui::Selectable("[Rola] Senior C++ Dev");
-        ImGui::Selectable("[Ograniczenie] Tylko STL");
-        ImGui::Selectable("[Format] Markdown z diff");
+    if (ImGui::TreeNodeEx(L("prompt_templates_header"), ImGuiTreeNodeFlags_DefaultOpen)) {
+        // Dynamiczne wczytywanie szablonów
+        // Na razie mamy tylko jeden, ale logika jest gotowa na więcej
+        if (ImGui::Selectable(L("refactor_prompt_name"), current_prompt_template_key == "refactor_prompt_name")) {
+            current_prompt_template_key = "refactor_prompt_name";
+            LoadPromptTemplate(current_prompt_template_key, current_prompt_lang_code);
+        }
         ImGui::TreePop();
     }
     ImGui::EndChild();
 }
 
 void RenderComposerPane() {
+    // Górna część z zakładkami i polami
+    ImGui::BeginChild("ComposerPaneContent", ImVec2(0, -ImGui::GetFrameHeightWithSpacing() * 2), false);
     if (ImGui::BeginTabBar("ComposerTabs")) {
-        if (ImGui::BeginTabItem("Prompt: Refaktoryzacja Silnika Fizyki v1")) {
+        // Na razie jedna zakładka, ale logika jest gotowa na więcej
+        if (ImGui::BeginTabItem(L(current_prompt_template_key.c_str()))) {
             ImGui::BeginChild("ComposerLeft", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 0), ImGuiChildFlags_None);
-                if (ImGui::CollapsingHeader("Rola / Persona", ImGuiTreeNodeFlags_DefaultOpen))
-                    ImGui::InputTextMultiline("##Role", role_buffer, sizeof(role_buffer), ImVec2(-1, ImGui::GetTextLineHeight() * 4));
-                if (ImGui::CollapsingHeader("Zadanie", ImGuiTreeNodeFlags_DefaultOpen))
-                    ImGui::InputTextMultiline("##Task", task_buffer, sizeof(task_buffer), ImVec2(-1, ImGui::GetTextLineHeight() * 7));
-                if (ImGui::CollapsingHeader("Ograniczenia", ImGuiTreeNodeFlags_DefaultOpen))
-                    ImGui::InputTextMultiline("##Constraints", constraints_buffer, sizeof(constraints_buffer), ImVec2(-1, ImGui::GetTextLineHeight() * 4));
-                if (ImGui::CollapsingHeader("Format Wyjściowy", ImGuiTreeNodeFlags_DefaultOpen))
-                    ImGui::InputTextMultiline("##OutputFormat", output_format_buffer, sizeof(output_format_buffer), ImVec2(-1, ImGui::GetTextLineHeight() * 4));
+                if (ImGui::CollapsingHeader(L("role_header"), ImGuiTreeNodeFlags_DefaultOpen))
+                    ImGui::InputTextMultiline("##Role", &current_role, ImVec2(-1, ImGui::GetTextLineHeight() * 4));
+                if (ImGui::CollapsingHeader(L("task_header"), ImGuiTreeNodeFlags_DefaultOpen))
+                    ImGui::InputTextMultiline("##Task", &current_task, ImVec2(-1, ImGui::GetTextLineHeight() * 7));
+                if (ImGui::CollapsingHeader(L("constraints_header"), ImGuiTreeNodeFlags_DefaultOpen))
+                    ImGui::InputTextMultiline("##Constraints", &current_constraints, ImVec2(-1, ImGui::GetTextLineHeight() * 4));
+                if (ImGui::CollapsingHeader(L("output_format_header"), ImGuiTreeNodeFlags_DefaultOpen))
+                    ImGui::InputTextMultiline("##OutputFormat", &current_output_format, ImVec2(-1, ImGui::GetTextLineHeight() * 4));
             ImGui::EndChild();
             ImGui::SameLine();
 
             ImGui::BeginChild("ComposerRight", ImVec2(0, 0), ImGuiChildFlags_None);
-                if (ImGui::Button("Wczytaj kod z katalogu", ImVec2(-1, 0))) { /* Logika Dirpacker */ }
-                ImGui::InputTextMultiline("##Context", context_buffer, sizeof(context_buffer), ImVec2(-1, -1));
+                if (ImGui::Button(L("load_code_button"), ImVec2(-1, 0))) { /* Logika Dirpacker */ }
+                ImGui::InputTextMultiline("##Context", &context_buffer, ImVec2(-1, -1));
             ImGui::EndChild();
             
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("+")) { /* Logika dodawania nowej zakładki */ }
         ImGui::EndTabBar();
+    }
+    ImGui::EndChild();
+
+    // Dolna część z wyborem języka promptu
+    ImGui::Separator();
+    ImGui::Text("Język treści promptu:");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(200);
+    const auto& prompt_langs = I18nManager::GetInstance().GetAvailablePromptLanguages();
+    if (ImGui::BeginCombo("##PromptLang", prompt_langs.at(current_prompt_lang_code).c_str())) {
+        for (const auto& [code, name] : prompt_langs) {
+            const bool is_selected = (current_prompt_lang_code == code);
+            if (ImGui::Selectable(name.c_str(), is_selected)) {
+                current_prompt_lang_code = code;
+                LoadPromptTemplate(current_prompt_template_key, current_prompt_lang_code); // Przeładuj treść
+            }
+            if (is_selected) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
     }
 }
 
 void RenderPlaygroundPane(float width) {
     ImGui::BeginChild("PlaygroundPane", ImVec2(width, 0), ImGuiChildFlags_Border);
-    ImGui::Text("Plac Zabaw AI");
+    ImGui::Text("%s", L("playground_pane_title"));
     ImGui::Separator();
     
     std::stringstream ss;
-    ss << role_buffer << "\n\n" << task_buffer << "\n\n" << constraints_buffer << "\n\n" << output_format_buffer << "\n\n---\nKOD:\n" << context_buffer;
+    ss << current_role << "\n\n" << current_task << "\n\n" << current_constraints << "\n\n" << current_output_format << "\n\n---\nKOD:\n" << context_buffer;
     final_prompt = ss.str();
 
-    if (ImGui::Button("Kopiuj gotowy prompt", ImVec2(-1, 0))) {
+    if (ImGui::Button(L("copy_prompt_button"), ImVec2(-1, 0))) {
         ImGui::SetClipboardText(final_prompt.c_str());
     }
 
     if (ImGui::BeginTabBar("OutputTabs")) {
-        if (ImGui::BeginTabItem("Odpowiedź Modelu")) {
-            ImGui::InputTextMultiline("##PlaygroundOutput", playground_output_buffer, sizeof(playground_output_buffer), ImVec2(-1, -1));
+        if (ImGui::BeginTabItem(L("model_response_tab"))) {
+            ImGui::InputTextMultiline("##PlaygroundOutput", &playground_output_buffer, ImVec2(-1, -1));
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("Finalny prompt (podgląd)")) {
+        if (ImGui::BeginTabItem(L("final_prompt_tab"))) {
              ImGui::BeginChild("FinalPromptScroll", ImVec2(0,0), ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
-             ImGui::TextWrapped("%s", final_prompt.c_str());
+             ImGui::TextUnformatted(final_prompt.c_str());
              ImGui::EndChild();
              ImGui::EndTabItem();
         }
@@ -4437,12 +4483,15 @@ void RenderStatusBar() {
     ImGui::Separator();
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 5));
     
-    float theme_text_width = ImGui::CalcTextSize(app_state.theme_name.c_str()).x + ImGui::CalcTextSize("Motyw: ").x;
+    char theme_buffer[256];
+    snprintf(theme_buffer, sizeof(theme_buffer), L("status_bar_theme"), app_state.theme_name.c_str());
+    float theme_text_width = ImGui::CalcTextSize(theme_buffer).x;
+
     int token_count = EstimateTokens(final_prompt.c_str());
-    ImGui::Text("Szacowana liczba tokenów: %d", token_count);
+    ImGui::Text(L("status_bar_tokens"), token_count);
     
     ImGui::SameLine(ImGui::GetWindowWidth() - theme_text_width - ImGui::GetStyle().ItemSpacing.x);
-    ImGui::Text("Motyw: %s", app_state.theme_name.c_str());
+    ImGui::TextUnformatted(theme_buffer);
     
     ImGui::PopStyleVar();
 }
@@ -4456,11 +4505,20 @@ void RenderUI() {
     ImGui::Begin("Główny Kontener", nullptr, window_flags);
 
     if (ImGui::BeginMenuBar()) {
-        if (ImGui::BeginMenu("Motywy")) {
+        if (ImGui::BeginMenu(L("themes_menu"))) {
             for (const auto& theme_name : available_theme_names) {
                 if (ImGui::MenuItem(theme_name.c_str(), NULL, app_state.theme_name == theme_name)) {
                     ThemeManager::ApplyTheme(theme_name, db_manager->getDB());
                     app_state.theme_name = theme_name;
+                }
+            }
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("Język UI")) {
+            const auto& ui_langs = I18nManager::GetInstance().GetAvailableUILanguages();
+            for (const auto& [code, name] : ui_langs) {
+                if (ImGui::MenuItem(name.c_str(), NULL, I18nManager::GetInstance().GetCurrentUILanguage() == code)) {
+                    I18nManager::GetInstance().SetUILanguage(code);
                 }
             }
             ImGui::EndMenu();
@@ -4511,8 +4569,19 @@ int main(int, char **) {
     try {
         fs::path config_dir = ConfigManager::GetConfigDirPath();
         db_manager = std::make_unique<DatabaseManager>(config_dir / "ai_prompter.sqlite");
+        
+        I18nManager::GetInstance().Initialize(db_manager->getDB());
         ThemeManager::InitializeAndSeedThemes(db_manager->getDB());
+        
         available_theme_names = ThemeManager::GetThemeNames(db_manager->getDB());
+
+        // Ustaw język UI z konfiguracji (w przyszłości) lub domyślny
+        // TODO: Wczytaj app_state.ui_language z ConfigManager
+        I18nManager::GetInstance().SetUILanguage("pl_PL"); 
+        
+        // Wczytaj domyślny lub ostatnio używany szablon
+        LoadPromptTemplate(current_prompt_template_key, current_prompt_lang_code);
+
     } catch (const std::exception& e) {
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Błąd Krytyczny Bazy Danych", e.what(), NULL);
         return 1;
@@ -4593,6 +4662,60 @@ int main(int, char **) {
 
     return 0;
 }
+--- END_OF_FILE ---
+--- START TEXT FILE path: "gui/I18nManager.h" size: 1637 b blake3: 5898f6655dfdbb92376d406cc0b27c17d4fc01a187fbd588aa4eba90c898a8cf ---
+#pragma once
+#include <string>
+#include <vector>
+#include <map>
+#include <memory>
+#include <SQLiteCpp/Database.h>
+
+// Struktura do przechowywania treści promptu
+struct PromptContent {
+    std::string role;
+    std::string task;
+    std::string constraints;
+    std::string output_format;
+};
+
+class I18nManager {
+public:
+    // Singleton access
+    static I18nManager& GetInstance();
+
+    void Initialize(SQLite::Database& db);
+    
+    // Zarządzanie językiem UI
+    void SetUILanguage(const std::string& lang_code);
+    const std::string& GetCurrentUILanguage() const;
+    const char* L(const char* key); // Główna funkcja tłumacząca UI
+
+    // Pobieranie dostępnych języków
+    const std::map<std::string, std::string>& GetAvailableUILanguages() const;
+    const std::map<std::string, std::string>& GetAvailablePromptLanguages() const;
+
+    // Zarządzanie promptami
+    std::vector<std::string> GetPromptTemplateNames(const std::string& ui_lang_code);
+    PromptContent GetPromptContent(const std::string& name_key, const std::string& prompt_lang_code);
+
+private:
+    I18nManager() = default;
+    ~I18nManager() = default;
+    I18nManager(const I18nManager&) = delete;
+    I18nManager& operator=(const I18nManager&) = delete;
+
+    void LoadStrings(const std::string& lang_code);
+
+    SQLite::Database* m_db = nullptr;
+    std::string m_current_ui_lang_code = "en_US";
+    std::map<std::string, std::string> m_strings;
+    std::map<std::string, std::string> m_available_ui_languages;
+    std::map<std::string, std::string> m_available_prompt_languages;
+};
+
+// Skrót dla łatwiejszego dostępu
+const char* L(const char* key);
 --- END_OF_FILE ---
 --- START TEXT FILE path: "gui/Themes.h" size: 303 b blake3: 27c57f8f6e92b4beb7025759e25c8eadda5c6a4bf31ff3d962763cbf07351120 ---
 #pragma once
@@ -4684,11 +4807,119 @@ void LoadConfig(AppState& state) {
 
 } // namespace ConfigManager
 --- END_OF_FILE ---
---- START TEXT FILE path: ".gitignore" size: 53 b blake3: 1691799eb1812e25170ada89c4b654f21f1c9e0245547aa87665ca0c6d8e3618 ---
+--- START TEXT FILE path: "gui/I18nManager.cpp" size: 3965 b blake3: 07ca5b0593fb2735d36adaa65d88fdcd5bc8d047fa37f3fcddf38c68e94d16ce ---
+#include "I18nManager.h"
+#include <SQLiteCpp/Statement.h>
+#include <iostream>
+
+I18nManager& I18nManager::GetInstance() {
+    static I18nManager instance;
+    return instance;
+}
+
+void I18nManager::Initialize(SQLite::Database& db) {
+    m_db = &db;
+
+    // Wczytaj dostępne języki
+    try {
+        SQLite::Statement query_langs(*m_db, "SELECT lang_code, name_native FROM languages");
+        while (query_langs.executeStep()) {
+            std::string code = query_langs.getColumn(0);
+            std::string name = query_langs.getColumn(1);
+            m_available_ui_languages[code] = name;
+            m_available_prompt_languages[code] = name; // Na razie te same
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Błąd wczytywania języków: " << e.what() << std::endl;
+    }
+
+    SetUILanguage("en_US"); // Domyślny język
+}
+
+void I18nManager::SetUILanguage(const std::string& lang_code) {
+    if (m_available_ui_languages.count(lang_code)) {
+        m_current_ui_lang_code = lang_code;
+        LoadStrings(lang_code);
+    }
+}
+
+const std::string& I18nManager::GetCurrentUILanguage() const {
+    return m_current_ui_lang_code;
+}
+
+void I18nManager::LoadStrings(const std::string& lang_code) {
+    m_strings.clear();
+    try {
+        SQLite::Statement query(*m_db, "SELECT key, value FROM ui_translations WHERE lang_code = ?");
+        query.bind(1, lang_code);
+        while (query.executeStep()) {
+            m_strings[query.getColumn(0).getString()] = query.getColumn(1).getString();
+        }
+        std::cout << "Załadowano " << m_strings.size() << " tłumaczeń dla języka " << lang_code << std::endl;
+    } catch (const std::exception& e) {
+        std::cerr << "Błąd wczytywania tłumaczeń dla " << lang_code << ": " << e.what() << std::endl;
+    }
+}
+
+const char* I18nManager::L(const char* key) {
+    auto it = m_strings.find(key);
+    if (it != m_strings.end()) {
+        return it->second.c_str();
+    }
+    // Zwróć klucz jako fallback, aby łatwo znaleźć brakujące tłumaczenia
+    return key;
+}
+
+const std::map<std::string, std::string>& I18nManager::GetAvailableUILanguages() const {
+    return m_available_ui_languages;
+}
+
+const std::map<std::string, std::string>& I18nManager::GetAvailablePromptLanguages() const {
+    return m_available_prompt_languages;
+}
+
+std::vector<std::string> I18nManager::GetPromptTemplateNames(const std::string& ui_lang_code) {
+    std::vector<std::string> names;
+    try {
+        SQLite::Statement query(*m_db, "SELECT T1.value FROM ui_translations T1 INNER JOIN prompt_templates T2 ON T1.key = T2.name_key WHERE T1.lang_code = ? ORDER BY T2.template_id");
+        query.bind(1, ui_lang_code);
+        while (query.executeStep()) {
+            names.push_back(query.getColumn(0).getString());
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Błąd pobierania nazw szablonów: " << e.what() << std::endl;
+    }
+    return names;
+}
+
+PromptContent I18nManager::GetPromptContent(const std::string& name_key, const std::string& prompt_lang_code) {
+    PromptContent content;
+    try {
+        SQLite::Statement query(*m_db, "SELECT T2.role, T2.task, T2.constraints, T2.output_format FROM prompt_templates T1 INNER JOIN prompt_translations T2 ON T1.template_id = T2.template_id WHERE T1.name_key = ? AND T2.lang_code = ?");
+        query.bind(1, name_key);
+        query.bind(2, prompt_lang_code);
+        if (query.executeStep()) {
+            content.role = query.getColumn(0).getString();
+            content.task = query.getColumn(1).getString();
+            content.constraints = query.getColumn(2).getString();
+            content.output_format = query.getColumn(3).getString();
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Błąd pobierania treści promptu: " << e.what() << std::endl;
+    }
+    return content;
+}
+
+// Globalna funkcja pomocnicza
+const char* L(const char* key) {
+    return I18nManager::GetInstance().L(key);
+}
+--- END_OF_FILE ---
+--- START TEXT FILE path: ".gitignore" size: 39 b blake3: 0b3e63c3fd149ce41dd5485b40cc202f21dfe7fff00fd9164dc9859edc8f031c ---
 .vscode/
 build/
 builddir/
-subprojects/imgui/.github/
+subprojects/
 
 --- END_OF_FILE ---
 --- START TEXT FILE path: "LICENSE" size: 1068 b blake3: d882c608ac09b0f5f6a4eb98adb7c08b3e7a3a71813d10f8e6309175e2e23fac ---
@@ -4730,6 +4961,56 @@ system = 'darwin'
 cpu_family = 'x86_64'
 cpu = 'x86_64'
 endian = 'little'
+
+--- END_OF_FILE ---
+--- START TEXT FILE path: "lang.sql" size: 3317 b blake3: f1e6a8f9739734c21c6205f0eb4e50d94565a137243463dfc2fd5ab6f22b9d5e ---
+-- Krok 1: Dodaj języki
+INSERT INTO languages (lang_code, name_native) VALUES ('en_US', 'English'), ('pl_PL', 'Polski');
+
+-- Krok 2: Dodaj tłumaczenia UI
+INSERT INTO ui_translations (key, lang_code, value) VALUES
+    ('themes_menu', 'en_US', 'Themes'),
+    ('themes_menu', 'pl_PL', 'Motywy'),
+    ('library_pane_title', 'en_US', 'Resource Library'),
+    ('library_pane_title', 'pl_PL', 'Biblioteka Zasobów'),
+    ('prompt_templates_header', 'en_US', 'Prompt Templates'),
+    ('prompt_templates_header', 'pl_PL', 'Szablony Promptów'),
+    ('snippets_header', 'en_US', 'Snippets'),
+    ('snippets_header', 'pl_PL', 'Wycinki (Snippets)'),
+    ('composer_pane_title', 'en_US', 'Composer'),
+    ('composer_pane_title', 'pl_PL', 'Kompozytor'),
+    ('role_header', 'en_US', 'Role / Persona'),
+    ('role_header', 'pl_PL', 'Rola / Persona'),
+    ('task_header', 'en_US', 'Task'),
+    ('task_header', 'pl_PL', 'Zadanie'),
+    ('constraints_header', 'en_US', 'Constraints'),
+    ('constraints_header', 'pl_PL', 'Ograniczenia'),
+    ('output_format_header', 'en_US', 'Output Format'),
+    ('output_format_header', 'pl_PL', 'Format Wyjściowy'),
+    ('load_code_button', 'en_US', 'Load code from directory'),
+    ('load_code_button', 'pl_PL', 'Wczytaj kod z katalogu'),
+    ('playground_pane_title', 'en_US', 'AI Playground'),
+    ('playground_pane_title', 'pl_PL', 'Plac Zabaw AI'),
+    ('copy_prompt_button', 'en_US', 'Copy final prompt'),
+    ('copy_prompt_button', 'pl_PL', 'Kopiuj gotowy prompt'),
+    ('model_response_tab', 'en_US', 'Model Response'),
+    ('model_response_tab', 'pl_PL', 'Odpowiedź Modelu'),
+    ('final_prompt_tab', 'en_US', 'Final Prompt (Preview)'),
+    ('final_prompt_tab', 'pl_PL', 'Finalny prompt (podgląd)'),
+    ('status_bar_tokens', 'en_US', 'Estimated tokens: %d'),
+    ('status_bar_tokens', 'pl_PL', 'Szacowana liczba tokenów: %d'),
+    ('status_bar_theme', 'en_US', 'Theme: %s'),
+    ('status_bar_theme', 'pl_PL', 'Motyw: %s'),
+    ('refactor_prompt_name', 'en_US', 'C++ Refactoring'),
+    ('refactor_prompt_name', 'pl_PL', 'Refaktoryzacja C++');
+
+-- Krok 3: Dodaj szablon promptu (klucz nazwy)
+INSERT INTO prompt_templates (name_key) VALUES ('refactor_prompt_name');
+
+-- Krok 4: Dodaj tłumaczenia dla szablonu promptu
+INSERT INTO prompt_translations (template_id, lang_code, role, task, constraints, output_format) VALUES
+    (1, 'en_US', 'You are an expert C++ programmer with 20 years of experience in low-latency, high-performance systems.', 'Analyze the code below. Identify potential bugs, code smells, and propose refactoring to improve readability and performance.', '- Do not use external libraries beyond the C++17 STL.\n- Preserve existing functionality.', 'Propose changes in a "diff" format. Provide a concise justification for each suggestion.'),
+    (1, 'pl_PL', 'Jesteś ekspertem programistą C++ z 20-letnim doświadczeniem w systemach o niskim opóźnieniu i wysokiej wydajności.', 'Przeanalizuj poniższy kod. Zidentyfikuj potencjalne błędy, ''code smells'', oraz zaproponuj refaktoryzację w celu poprawy czytelności i wydajności.', '- Nie używaj bibliotek zewnętrznych poza C++17 STL.\n- Zachowaj istniejącą funkcjonalność.\n- Odpowiadaj w języku polskim.', 'Zaproponuj zmiany w formacie ''diff''. Każdą sugestię opatrz zwięzłym uzasadnieniem.');
 
 --- END_OF_FILE ---
 --- START TEXT FILE path: "imgui.ini" size: 273 b blake3: 1ffb451c0327078a5513ffa346187ad0ce9994f79dce28b01ba63d73fb30628c ---
