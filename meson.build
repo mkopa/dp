@@ -117,14 +117,8 @@ font_source_file = join_paths(meson.current_source_dir(), 'gui/assets/fonts/Robo
 
 # Definiujemy cel, który kopiuje czcionkę i tworzy plik-stempel jako dowód.
 font_copier = custom_target('copy_font_asset',
-  # Oficjalnym wynikiem jest prosty plik-stempel. BEZ ŚCIEŻKI.
   output: 'font_copied.stamp',
-  
-  # To polecenie wykonuje całą pracę: tworzy katalog, kopiuje plik, a na końcu
-  # tworzy plik-stempel (@OUTPUT@), aby zasygnalizować Mesonowi sukces.
   command: ['sh', '-c', 'mkdir -p @0@ && cp @1@ @0@/ && touch @OUTPUT@'.format(font_dest_dir, font_source_file)],
-  
-  # Ten cel musi być zbudowany domyślnie.
   build_by_default: true
 )
 
@@ -134,14 +128,21 @@ install_data(
   install_dir: get_option('datadir') / 'ai_prompter/assets/fonts'
 )
 
+# Pliki nagłówkowe GUI (aby IDE je widziało)
+gui_headers = files(
+  'gui/Themes.h',
+  'gui/ConfigManager.h',
+  'gui/AppState.h'
+)
+
 executable('ai_prompter',
   'gui/main.cpp',
   'gui/Themes.cpp',
-  'gui/ConfigManager.cpp', # <- DODANY NOWY PLIK ŹRÓDŁOWY
+  'gui/ConfigManager.cpp',
   imgui_backend_sources,
   font_copier,
   cpp_args: ai_prompter_args,
-  include_directories: 'src/backends',
+  include_directories: 'src/backends', # Potrzebne dla backendów imgui
   dependencies: [
     dirpacker_dep,
     imgui_dep,
