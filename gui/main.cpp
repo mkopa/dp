@@ -1,4 +1,3 @@
-
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -128,10 +127,24 @@ void RenderPlaygroundPane(float width) {
 
 void RenderStatusBar() {
     ImGui::Separator();
+    
+    // Zwiększamy padding pionowy dla tekstu w pasku stanu
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 5)); // Dodatkowe 10px paddingu pionowego
+    
+    // Obliczamy szerokość tekstu o motywie
+    const char* theme_text = ThemeManager::theme_names[(int)app_state.theme];
+    std::string full_theme_text = "Motyw: " + std::string(theme_text);
+    float theme_text_width = ImGui::CalcTextSize(full_theme_text.c_str()).x;
+    
+    // Pierwszy element: liczba tokenów
     int token_count = EstimateTokens(final_prompt.c_str());
     ImGui::Text("Szacowana liczba tokenów: %d", token_count);
-    ImGui::SameLine(ImGui::GetWindowWidth() - 300);
-    ImGui::Text("Motyw: %s", ThemeManager::theme_names[(int)app_state.theme]);
+    
+    // Drugi element: informacja o motywie - wyrównana do prawej
+    ImGui::SameLine(ImGui::GetWindowWidth() - theme_text_width - ImGui::GetStyle().ItemSpacing.x);
+    ImGui::Text("Motyw: %s", theme_text);
+    
+    ImGui::PopStyleVar(); // Przywracamy oryginalny padding
 }
 
 void RenderUI() {
@@ -155,33 +168,43 @@ void RenderUI() {
         ImGui::EndMenuBar();
     }
     
-    float total_width = ImGui::GetContentRegionAvail().x;
-    float min_pane_width = 200.0f;
-    float splitter_width = 8.0f;
+    // Oblicz dostępną wysokość: cały obszar okna minus menu bar i minus miejsce na pasek stanu
+    float status_bar_height = ImGui::GetFrameHeightWithSpacing() + 10; // Dodatkowe 10px na padding
+    float available_height = ImGui::GetContentRegionAvail().y - status_bar_height;
 
-    // Walidacja szerokości paneli
-    if (app_state.library_pane_width < min_pane_width) app_state.library_pane_width = min_pane_width;
-    if (app_state.playground_pane_width < min_pane_width) app_state.playground_pane_width = min_pane_width;
-    if (app_state.library_pane_width + app_state.playground_pane_width + (2 * splitter_width) > total_width) {
-        app_state.library_pane_width = total_width * 0.25f;
-        app_state.playground_pane_width = total_width * 0.30f;
+    // Kontener dla paneli (bez paska stanu)
+    ImGui::BeginChild("PanelsContainer", ImVec2(0, available_height), ImGuiChildFlags_None);
+    {
+        float total_width = ImGui::GetContentRegionAvail().x;
+        float min_pane_width = 200.0f;
+        float splitter_width = 8.0f;
+
+        // Walidacja szerokości paneli
+        if (app_state.library_pane_width < min_pane_width) app_state.library_pane_width = min_pane_width;
+        if (app_state.playground_pane_width < min_pane_width) app_state.playground_pane_width = min_pane_width;
+        if (app_state.library_pane_width + app_state.playground_pane_width + (2 * splitter_width) > total_width) {
+            app_state.library_pane_width = total_width * 0.25f;
+            app_state.playground_pane_width = total_width * 0.30f;
+        }
+        
+        // Renderowanie paneli i splitterów
+        RenderLibraryPane(app_state.library_pane_width);
+        VSplitter("##VSplitter1", &app_state.library_pane_width);
+        
+        float composer_width = total_width - app_state.library_pane_width - app_state.playground_pane_width - (2 * splitter_width);
+        ImGui::BeginChild("ComposerPane", ImVec2(composer_width, 0), ImGuiChildFlags_None);
+        RenderComposerPane();
+        ImGui::EndChild();
+        
+        VSplitter("##VSplitter2", &composer_width);
+        // Aktualizacja szerokości prawego panelu na podstawie przesunięcia drugiego splittera
+        app_state.playground_pane_width = total_width - app_state.library_pane_width - composer_width - (2 * splitter_width);
+
+        RenderPlaygroundPane(app_state.playground_pane_width);
     }
+    ImGui::EndChild(); // PanelsContainer
     
-    // Renderowanie paneli i splitterów
-    RenderLibraryPane(app_state.library_pane_width);
-    VSplitter("##VSplitter1", &app_state.library_pane_width);
-    
-    float composer_width = total_width - app_state.library_pane_width - app_state.playground_pane_width - (2 * splitter_width);
-    ImGui::BeginChild("ComposerPane", ImVec2(composer_width, 0), ImGuiChildFlags_None);
-    RenderComposerPane();
-    ImGui::EndChild();
-    
-    VSplitter("##VSplitter2", &composer_width);
-    // Aktualizacja szerokości prawego panelu na podstawie przesunięcia drugiego splittera
-    app_state.playground_pane_width = total_width - app_state.library_pane_width - composer_width - (2 * splitter_width);
-
-    RenderPlaygroundPane(app_state.playground_pane_width);
-    
+    // Pasek stanu na dole
     RenderStatusBar();
 
     ImGui::End();
@@ -221,7 +244,7 @@ int main(int, char **) {
     std::string font_path = std::string(base_path_ptr ? base_path_ptr : "./") + "assets/fonts/Roboto-Regular.ttf";
     SDL_free(base_path_ptr);
     
-    io.Fonts->AddFontFromFileTTF(font_path.c_str(), 18.0f, nullptr, io.Fonts->GetGlyphRangesDefault());
+    io.Fonts->AddFontFromFileTTF(font_path.c_str(), 16.0f, nullptr, io.Fonts->GetGlyphRangesDefault());
 
     const int ACTIVE_FPS = 60, IDLE_FPS = 15;
     const Uint32 IDLE_TIMEOUT_MS = 200;
