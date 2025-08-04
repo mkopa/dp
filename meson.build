@@ -110,7 +110,7 @@ imgui_backend_sources = files(
   'src/backends/imgui_impl_sdl2.cpp',
   'src/backends/imgui_impl_opengl3.cpp'
 )
-ai_prompter_args = ['-DIMGUI_IMPL_OPENGL_LOADER_GLAD2']
+ai_prompter_args = []
 
 font_dest_dir = join_paths(meson.current_build_dir(), 'assets/fonts')
 font_source_file = join_paths(meson.current_source_dir(), 'gui/assets/fonts/Roboto-Regular.ttf')
@@ -136,7 +136,8 @@ install_data(
 
 executable('ai_prompter',
   'gui/main.cpp',
-  'gui/Themes.cpp', # <- DODANY NOWY PLIK ŹRÓDŁOWY
+  'gui/Themes.cpp',
+  'gui/ConfigManager.cpp', # <- DODANY NOWY PLIK ŹRÓDŁOWY
   imgui_backend_sources,
   font_copier,
   cpp_args: ai_prompter_args,
