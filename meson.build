@@ -7,10 +7,19 @@ project('dirpacker', 'c', 'cpp',
     'default_library=static'
   ])
 
-# --- Zależności Podstawowe ---
+# --- Zależności Podstawowe (bez zmian) ---
 cppcodec_dep = dependency('cppcodec', fallback: ['cppcodec', 'cppcodec_dep'])
 blake3_dep = dependency('blake3', fallback: ['blake3', 'blake3_dep'])
 hash_library_dep = dependency('hash_library', fallback: ['hash_library', 'hash_library_dep'])
+
+# --- Zależności Bazy Danych (z lokalnych podprojektów) ---
+# ZMODYFIKOWANE: Używamy jawnego wywołania subproject() zamiast dependency()
+# To daje nam pełną kontrolę i eliminuje niejednoznaczności.
+sqlite3_proj = subproject('sqlite3')
+sqlite3_dep = sqlite3_proj.get_variable('sqlite3_dep')
+
+sqlitecpp_proj = subproject('sqlitecpp')
+sqlitecpp_dep = sqlitecpp_proj.get_variable('SQLiteCpp_dep')
 
 
 if host_machine.system() == 'darwin'
@@ -132,13 +141,15 @@ install_data(
 gui_headers = files(
   'gui/Themes.h',
   'gui/ConfigManager.h',
-  'gui/AppState.h'
+  'gui/AppState.h',
+  'gui/DatabaseManager.h', # <-- NOWY NAGŁÓWEK
 )
 
 executable('ai_prompter',
   'gui/main.cpp',
   'gui/Themes.cpp',
   'gui/ConfigManager.cpp',
+  'gui/DatabaseManager.cpp', # <-- NOWA DEFINICJA
   imgui_backend_sources,
   font_copier,
   cpp_args: ai_prompter_args,
@@ -147,7 +158,8 @@ executable('ai_prompter',
     dirpacker_dep,
     imgui_dep,
     sdl_dep,
-    opengl_dep
+    opengl_dep,
+    sqlitecpp_dep # <-- Zależność do SQLiteCpp
   ],
   install: true
 )

@@ -2,6 +2,7 @@
 #include <stdexcept>
 #include <string>
 #include <sstream>
+#include <memory> 
 
 #include <SDL.h>
 #include <SDL_opengl.h>
@@ -14,9 +15,12 @@
 #include "Themes.h"
 #include "AppState.h"
 #include "ConfigManager.h"
+#include "DatabaseManager.h"
 
 // --- Zmienne Globalne Stanu Aplikacji ---
 static AppState app_state;
+static std::unique_ptr<DatabaseManager> db_manager;
+static std::vector<std::string> available_theme_names;
 static char role_buffer[1024] = "Jesteś ekspertem programistą C++ z 20-letnim doświadczeniem w systemach o niskim opóźnieniu i wysokiej wydajności.";
 static char task_buffer[2048] = "Przeanalizuj poniższy kod. Zidentyfikuj potencjalne błędy, 'code smells', oraz zaproponuj refaktoryzację w celu poprawy czytelności i wydajności.";
 static char context_buffer[65536] = "";
@@ -66,7 +70,6 @@ void RenderLibraryPane(float width) {
 void RenderComposerPane() {
     if (ImGui::BeginTabBar("ComposerTabs")) {
         if (ImGui::BeginTabItem("Prompt: Refaktoryzacja Silnika Fizyki v1")) {
-            // Panel lewy wewnątrz kompozytora
             ImGui::BeginChild("ComposerLeft", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 0), ImGuiChildFlags_None);
                 if (ImGui::CollapsingHeader("Rola / Persona", ImGuiTreeNodeFlags_DefaultOpen))
                     ImGui::InputTextMultiline("##Role", role_buffer, sizeof(role_buffer), ImVec2(-1, ImGui::GetTextLineHeight() * 4));
@@ -79,11 +82,8 @@ void RenderComposerPane() {
             ImGui::EndChild();
             ImGui::SameLine();
 
-            // Panel prawy wewnątrz kompozytora
             ImGui::BeginChild("ComposerRight", ImVec2(0, 0), ImGuiChildFlags_None);
-                if (ImGui::Button("Wczytaj kod z katalogu", ImVec2(-1, 0))) {
-                    // Logika Dirpacker
-                }
+                if (ImGui::Button("Wczytaj kod z katalogu", ImVec2(-1, 0))) { /* Logika Dirpacker */ }
                 ImGui::InputTextMultiline("##Context", context_buffer, sizeof(context_buffer), ImVec2(-1, -1));
             ImGui::EndChild();
             
@@ -99,7 +99,6 @@ void RenderPlaygroundPane(float width) {
     ImGui::Text("Plac Zabaw AI");
     ImGui::Separator();
     
-    // Generowanie finalnego promptu
     std::stringstream ss;
     ss << role_buffer << "\n\n" << task_buffer << "\n\n" << constraints_buffer << "\n\n" << output_format_buffer << "\n\n---\nKOD:\n" << context_buffer;
     final_prompt = ss.str();
@@ -110,7 +109,6 @@ void RenderPlaygroundPane(float width) {
 
     if (ImGui::BeginTabBar("OutputTabs")) {
         if (ImGui::BeginTabItem("Odpowiedź Modelu")) {
-            ImGui::TextWrapped("Wklej tutaj odpowiedź od AI, aby ją przeanalizować.");
             ImGui::InputTextMultiline("##PlaygroundOutput", playground_output_buffer, sizeof(playground_output_buffer), ImVec2(-1, -1));
             ImGui::EndTabItem();
         }
@@ -127,24 +125,16 @@ void RenderPlaygroundPane(float width) {
 
 void RenderStatusBar() {
     ImGui::Separator();
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 5));
     
-    // Zwiększamy padding pionowy dla tekstu w pasku stanu
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 5)); // Dodatkowe 10px paddingu pionowego
-    
-    // Obliczamy szerokość tekstu o motywie
-    const char* theme_text = ThemeManager::theme_names[(int)app_state.theme];
-    std::string full_theme_text = "Motyw: " + std::string(theme_text);
-    float theme_text_width = ImGui::CalcTextSize(full_theme_text.c_str()).x;
-    
-    // Pierwszy element: liczba tokenów
+    float theme_text_width = ImGui::CalcTextSize(app_state.theme_name.c_str()).x + ImGui::CalcTextSize("Motyw: ").x;
     int token_count = EstimateTokens(final_prompt.c_str());
     ImGui::Text("Szacowana liczba tokenów: %d", token_count);
     
-    // Drugi element: informacja o motywie - wyrównana do prawej
     ImGui::SameLine(ImGui::GetWindowWidth() - theme_text_width - ImGui::GetStyle().ItemSpacing.x);
-    ImGui::Text("Motyw: %s", theme_text);
+    ImGui::Text("Motyw: %s", app_state.theme_name.c_str());
     
-    ImGui::PopStyleVar(); // Przywracamy oryginalny padding
+    ImGui::PopStyleVar();
 }
 
 void RenderUI() {
@@ -157,10 +147,10 @@ void RenderUI() {
 
     if (ImGui::BeginMenuBar()) {
         if (ImGui::BeginMenu("Motywy")) {
-            for (int i = 0; i < ThemeManager::theme_count; ++i) {
-                if (ImGui::MenuItem(ThemeManager::theme_names[i], NULL, ThemeManager::current_theme == (ThemeManager::AppTheme)i)) {
-                    ThemeManager::ApplyTheme((ThemeManager::AppTheme)i);
-                    app_state.theme = ThemeManager::current_theme;
+            for (const auto& theme_name : available_theme_names) {
+                if (ImGui::MenuItem(theme_name.c_str(), NULL, app_state.theme_name == theme_name)) {
+                    ThemeManager::ApplyTheme(theme_name, db_manager->getDB());
+                    app_state.theme_name = theme_name;
                 }
             }
             ImGui::EndMenu();
@@ -168,18 +158,15 @@ void RenderUI() {
         ImGui::EndMenuBar();
     }
     
-    // Oblicz dostępną wysokość: cały obszar okna minus menu bar i minus miejsce na pasek stanu
-    float status_bar_height = ImGui::GetFrameHeightWithSpacing() + 10; // Dodatkowe 10px na padding
+    float status_bar_height = ImGui::GetFrameHeightWithSpacing() + 10;
     float available_height = ImGui::GetContentRegionAvail().y - status_bar_height;
 
-    // Kontener dla paneli (bez paska stanu)
     ImGui::BeginChild("PanelsContainer", ImVec2(0, available_height), ImGuiChildFlags_None);
     {
         float total_width = ImGui::GetContentRegionAvail().x;
         float min_pane_width = 200.0f;
         float splitter_width = 8.0f;
 
-        // Walidacja szerokości paneli
         if (app_state.library_pane_width < min_pane_width) app_state.library_pane_width = min_pane_width;
         if (app_state.playground_pane_width < min_pane_width) app_state.playground_pane_width = min_pane_width;
         if (app_state.library_pane_width + app_state.playground_pane_width + (2 * splitter_width) > total_width) {
@@ -187,7 +174,6 @@ void RenderUI() {
             app_state.playground_pane_width = total_width * 0.30f;
         }
         
-        // Renderowanie paneli i splitterów
         RenderLibraryPane(app_state.library_pane_width);
         VSplitter("##VSplitter1", &app_state.library_pane_width);
         
@@ -197,14 +183,11 @@ void RenderUI() {
         ImGui::EndChild();
         
         VSplitter("##VSplitter2", &composer_width);
-        // Aktualizacja szerokości prawego panelu na podstawie przesunięcia drugiego splittera
         app_state.playground_pane_width = total_width - app_state.library_pane_width - composer_width - (2 * splitter_width);
-
         RenderPlaygroundPane(app_state.playground_pane_width);
     }
-    ImGui::EndChild(); // PanelsContainer
+    ImGui::EndChild();
     
-    // Pasek stanu na dole
     RenderStatusBar();
 
     ImGui::End();
@@ -214,6 +197,16 @@ int main(int, char **) {
     ConfigManager::LoadConfig(app_state);
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) != 0) ThrowSDLError("Błąd podczas inicjalizacji SDL.");
+
+    try {
+        fs::path config_dir = ConfigManager::GetConfigDirPath();
+        db_manager = std::make_unique<DatabaseManager>(config_dir / "ai_prompter.sqlite");
+        ThemeManager::InitializeAndSeedThemes(db_manager->getDB());
+        available_theme_names = ThemeManager::GetThemeNames(db_manager->getDB());
+    } catch (const std::exception& e) {
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Błąd Krytyczny Bazy Danych", e.what(), NULL);
+        return 1;
+    }
 
     const char* glsl_version = "#version 330 core";
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, 0);
@@ -235,10 +228,7 @@ int main(int, char **) {
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 
-    ThemeManager::ApplyTheme(app_state.theme);
-
-    ImGui_ImplSDL2_InitForOpenGL(window, gl_context);
-    ImGui_ImplOpenGL3_Init(glsl_version);
+    ThemeManager::ApplyTheme(app_state.theme_name, db_manager->getDB());
 
     char* base_path_ptr = SDL_GetBasePath();
     std::string font_path = std::string(base_path_ptr ? base_path_ptr : "./") + "assets/fonts/Roboto-Regular.ttf";
@@ -246,7 +236,10 @@ int main(int, char **) {
     
     io.Fonts->AddFontFromFileTTF(font_path.c_str(), 16.0f, nullptr, io.Fonts->GetGlyphRangesDefault());
 
-    const int ACTIVE_FPS = 60, IDLE_FPS = 15;
+    ImGui_ImplSDL2_InitForOpenGL(window, gl_context);
+    ImGui_ImplOpenGL3_Init(glsl_version);
+
+    const int IDLE_FPS = 15;
     const Uint32 IDLE_TIMEOUT_MS = 200;
     Uint32 last_event_time = SDL_GetTicks();
     bool is_idle = false, done = false;
