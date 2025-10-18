@@ -2,3 +2,5 @@
 build/
 builddir/
 subprojects/
+dp.source.txt
+.dp/
