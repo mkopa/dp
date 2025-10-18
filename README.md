@@ -1,8 +1,8 @@
 # dirpacker
 
-> **dirpacker** – Lightweight, text-based directory archiver for code sharing and AI prompting.
+> **dirpacker** — Lightweight, text-based directory archiver with zero external dependencies.
 
-`dirpacker` is a minimal, dependency-focused tool that serializes an entire directory into a single, human-readable text stream. It's ideal for:
+`dirpacker` is a minimal tool that serializes an entire directory into a single, human-readable text stream. Perfect for:
 - Sharing project structure with AI assistants (e.g. LLMs)
 - Archiving codebases without binary formats
 - Debugging or auditing file inclusions/exclusions
@@ -10,73 +10,40 @@
 
 All files are wrapped in clear markers, and binary files are Base64-encoded. Rules from `.dpignore` (like `.gitignore`) control what's included.
 
-![Example output snippet](https://via.placeholder.com/600x200?text=---+START+TEXT+FILE+main.cpp+---\n#include+<iostream>\n...\n---+END_OF_FILE+---)
-*Example of serialized output*
-
-
-
 ## ✨ Features
 
-- ✅ **Text-only output** – safe for AI, logs, diffs
-- ✅ **Binary file support** via Base64 encoding
-- ✅ **`.dpignore` support** – ignore files/dirs like `.gitignore`
+- ✅ **Text-only output** — safe for AI, logs, diffs
+- ✅ **Binary file support** via custom Base64 encoding
+- ✅ **SHA256/SHA3 hashing** — built-in implementations
+- ✅ **`.dpignore` support** — ignore files/dirs like `.gitignore`
 - ✅ **Filter by type**: `--text-only` skips binaries
 - ✅ **Limit by size**: `-l 100k` skips large files
 - ✅ **Dry-run & stats**: preview what would be packed
-- ✅ **No compression** – fully inspectable output
 - ✅ **Cross-platform**: Linux, macOS, Windows (MSVC/MinGW)
-
-
 
 ## 🛠️ Build Instructions
 
-`dirpacker` uses **Meson + Ninja** – fast, modern, and portable.
+`dirpacker` uses **CMake** — modern, portable, and dependency-free.
 
 ### Prerequisites
 
 - **C++17 compiler** (GCC 8+, Clang 7+, MSVC 19.14+)
-- **Meson** (v0.55+)
-- **Ninja** (bundled with Meson on most systems)
+- **CMake** (v3.15+)
 - **Git** (to clone)
 
-Install Meson:
-```bash
-# Linux/macOS (pip)
-pip3 install meson ninja
-
-# Ubuntu/Debian
-sudo apt install meson ninja-build
-
-# Fedora
-sudo dnf install meson ninja-build
-
-# macOS (Homebrew)
-brew install meson ninja
-
-# Windows (MSYS2)
-pacman -S meson mingw-w64-x86_64-ninja
-```
-
-
-
-### 🐧 Linux & 🍏 macOS
+### 🐧 Linux & 🍎 macOS
 
 ```bash
 # Clone the repo
 git clone https://github.com/mkopa/dp.git
 cd dp
 
-# Configure build
-meson setup build
-
-# Compile
-meson compile -C build
+# Build
+./build.sh
 
 # Run
 ./build/dirpacker --help
 ```
-
-
 
 ### 💻 Windows
 
@@ -86,15 +53,14 @@ meson compile -C build
 # Install MSYS2 from https://www.msys2.org/
 # Open "MSYS2 MinGW 64-bit"
 
-# Update and install
+# Install tools
 pacman -Syu
-pacman -S git mingw-w64-x86_64-gcc mingw-w64-x86_64-meson mingw-w64-x86_64-ninja
+pacman -S git mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja
 
-# Clone and build
+# Build
 git clone https://github.com/mkopa/dp.git
 cd dp
-meson setup build
-meson compile -C build
+./build.sh
 
 # Run
 ./build/dirpacker.exe --help
@@ -102,21 +68,17 @@ meson compile -C build
 
 #### Option 2: Visual Studio (MSVC)
 
-Ensure you have **Visual Studio 2019+** with C++ tools.
-
-```bash
-# Open x64 Native Tools Command Prompt
+```cmd
+REM Open x64 Native Tools Command Prompt
 git clone https://github.com/mkopa/dp.git
 cd dp
 
-# Meson will auto-detect MSVC
-meson setup build
-meson compile -C build
+REM Build
+build.bat
 
-dirpacker.exe --help
+REM Run
+build\Release\dirpacker.exe --help
 ```
-
-
 
 ## 🧰 Usage
 
@@ -125,18 +87,18 @@ dirpacker -d <DIRECTORY> [OPTIONS]
 ```
 
 ### Required
-- `-d, --dir DIR` – input directory to pack
+- `-d, --dir DIR` — input directory to pack
 
 ### Optional
-- `-o, --out FILE` – output file (default: stdout)
-- `-t, --text-only` – skip binary files
-- `-l, --limit SIZE` – skip files larger than SIZE (e.g. `100k`, `1m`, `512b`)
-- `--dry-run` – simulate without writing
-- `--stats` – show summary after completion
-- `-v, --version` – show version
-- `-h, --help` – show help
-
-
+- `-o, --out FILE` — output file (default: stdout)
+- `-a, --algorithm ALGO` — hash algorithm: `sha256` (default), `sha3`
+- `-t, --text-only` — skip binary files
+- `-l, --limit SIZE` — skip files larger than SIZE (e.g. `100k`, `1m`, `512b`)
+- `--dry-run` — simulate without writing
+- `--stats` — show summary after completion
+- `--verbose` — detailed processing logs
+- `-v, --version` — show version
+- `-h, --help` — show help
 
 ### Examples
 
@@ -144,8 +106,8 @@ dirpacker -d <DIRECTORY> [OPTIONS]
 # Pack current dir to stdout
 dirpacker -d .
 
-# Save to file
-dirpacker -d . -o project.pack
+# Save to file with SHA3
+dirpacker -d . -a sha3 -o project.pack
 
 # Pipe to another tool
 dirpacker -d src -l 100k | wc -c
@@ -157,9 +119,7 @@ dirpacker -d . --dry-run --stats
 dirpacker -d . -t -l 50k -o code_text.pack
 ```
 
-
-
-## 📁 `.dpignore`
+## 📝 `.dpignore`
 
 Place a `.dpignore` file in your input directory to exclude files. Syntax is `.gitignore`-like:
 
@@ -182,62 +142,62 @@ Rules are matched recursively. Paths are normalized to forward slashes (`/`).
 
 > 💡 Tip: Use `--dry-run --stats` to verify what will be included.
 
-
-
 ## 📦 Output Format
 
 Each file is wrapped like this:
 
 ```
---- START TEXT FILE path/to/file.txt 1234 ---
+--- START TEXT FILE path: "path/to/file.txt" size: 1234 bytes sha3: 9dc2f59f074cf22b14bab8cb45b841cd5cc34b9e08387a0532c4c463dc310df5 ---
 (file content here)
---- END_OF_FILE ---
+--- END OF FILE ---
 ```
 
 or for binaries:
 
 ```
---- START BINARY FILE image.png 5678 ---
+--- START BINARY FILE path: "image.png" size: 5678 bytes sha3: 11548bb468eb66240a65e670e0d75c4e357409eafb57d6e1436ba19a003c0507 ---
 (base64-encoded data)
---- END_OF_FILE ---
+--- END OF FILE ---
 ```
 
 This makes parsing and debugging trivial.
 
+## 🏗️ Project Structure
 
+```
+dp/
+├── CMakeLists.txt          # Build configuration
+├── build.sh                # Linux/macOS build script
+├── build.bat               # Windows build script
+├── README.md               # This file
+├── .dpignore               # Ignore rules
+├── include/
+│   ├── dirpacker.hpp       # Main library interface
+│   ├── sha256.hpp          # SHA256 implementation
+│   ├── sha3.hpp            # SHA3 implementation
+│   └── base64.hpp          # Base64 encoder/decoder
+└── src/
+    ├── main.cpp            # CLI application
+    ├── dirpacker.cpp       # Core packing logic
+    ├── sha256.cpp          # SHA256 implementation
+    ├── sha3.cpp            # SHA3 implementation
+    └── base64.cpp          # Base64 implementation
+```
 
-## 📄 License
+## 🔧 Technical Details
 
-MIT License – see [LICENSE](LICENSE) for details.
+### Hash Algorithms
+- **SHA256**: Secure Hash Algorithm 256-bit
+- **SHA3**: SHA-3 (Keccak) 256-bit variant
 
-> Copyright © 2025 Marcin
+Both implementations are self-contained, no OpenSSL or external crypto libraries required.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files, to deal in the software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the software, and to permit persons to whom the software is furnished to do so, subject to the following conditions:
+### Base64 Encoding
+Custom, optimized Base64 encoder/decoder with:
+- RFC 4648 compliance
+- Efficient memory usage
+- Proper padding handling
+- Validation on decode
 
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-
-
-## 🙌 Contributing
-
-PRs welcome! Please ensure:
-- Code compiles on all platforms
-- No new dependencies
-- Follows existing style
-- Updates README if needed
-
-
-
-## 🐞 Bug Reports
-
-Open an issue with:
-- OS and compiler
-- `meson --version`
-- Exact command
-- Expected vs actual output
-
-
-
-> 🏷️ `dirpacker` – because sometimes you just need to send the code, not the noise.
+### Binary Detection
+Files are checked for null bytes (`\0`) in the first 8KB to determine if they're binary.
